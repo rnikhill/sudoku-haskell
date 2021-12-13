@@ -6,14 +6,30 @@ import Data.Function
 import Data.List
 import Data.Maybe
 import qualified Data.Set as Set
+import qualified Data.Map as Map
 import Text.Read
 
 data Square = Fixed Int | Possible (Set.Set Int)
+
+type NeighborMap = Map.Map (Int, Int) [(Int, Int)]
+
 data Board = Board Int (Array (Int, Int) Square)
+
+makeNeighborMap :: Int -> NeighborMap
+makeNeighborMap rank =
+  let
+    ixs = [(i, j) | i <- [1..rank^2], j <- [1..rank^2]]
+    vals = map (getAllNeighborIndices rank) ixs
+  in
+    Map.fromList $ ixs `zip` vals
 
 isEmpty :: Square -> Bool
 isEmpty (Possible _) = True
 isEmpty _ = False
+
+getPossibilities :: Square -> [Int]
+getPossibilities (Fixed _) = []
+getPossibilities (Possible xs) = Set.toList xs
 
 toString :: Square -> String
 toString (Possible _) = "*"
@@ -46,6 +62,36 @@ getSectorNeighbors board@(Board rank arr) (i, j) =
       j' = (j + rank - 1) `div` rank
    in getSector board (i', j')
 
+getRowNeighborIndices :: Int -> (Int, Int) -> Set.Set (Int, Int)
+getRowNeighborIndices rank (i, _) = Set.fromList [(i, j) | j <- [1 .. rank ^ 2]]
+
+getColNeighborIndices :: Int -> (Int, Int) -> Set.Set (Int, Int)
+getColNeighborIndices rank (_, j) = Set.fromList [(i, j) | i <- [1 .. rank ^ 2]]
+
+getSectorNeighborIndices :: Int -> (Int, Int) -> Set.Set (Int, Int)
+getSectorNeighborIndices rank (i, j) =
+  Set.fromList $
+    let i' = (i + rank - 1) `div` rank
+        j' = (j + rank - 1) `div` rank
+        is = [(i' - 1) * rank + 1 .. i' * rank]
+        js = [(j' - 1) * rank + 1 .. j' * rank]
+     in [(i, j) | i <- is, j <- js]
+
+getAllNeighborIndices :: Int -> (Int, Int) -> [(Int, Int)]
+getAllNeighborIndices rank ix = Set.toList $ (getRowNeighborIndices rank ix) `Set.union` (getColNeighborIndices rank ix) `Set.union` (getSectorNeighborIndices rank ix)
+
+updateAndPrune :: Board -> (Int, Int) -> Int -> NeighborMap -> Board
+updateAndPrune board@(Board rank arr) ix@(i, j) val neighborMap =
+  let
+    allNeighborIndices = Map.findWithDefault [] ix neighborMap
+    allNeighborVals = map (arr !) allNeighborIndices
+    neighbors = allNeighborIndices `zip` allNeighborVals
+    updates = (ix, Fixed val) : [(ix', Possible (Set.delete val s)) | (ix', Possible s) <- neighbors, ix /= ix']
+    arr' = arr // updates
+  in
+    Board rank arr'
+    
+
 getMissingNums :: Int -> [Square] -> Set.Set Int
 getMissingNums max squares =
   let nums = [x | Fixed x <- squares] & Set.fromList
@@ -54,8 +100,8 @@ getMissingNums max squares =
 hasDuplicates :: [Square] -> Bool
 hasDuplicates xs = (Set.size $ getNumbers xs) == length xs
 
-getPotentialValues :: (Int, Int) -> Board -> Set.Set Int
-getPotentialValues (i, j) board@(Board rank arr) =
+getPotentialValues :: Board -> (Int, Int) -> Set.Set Int
+getPotentialValues board@(Board rank arr) (i, j) =
   let missingR = getMissingNums (rank ^ 2) $ getRowNeighbors board (i, j)
       missingC = getMissingNums (rank ^ 2) $ getColNeighbors board (i, j)
       missingS = getMissingNums (rank ^ 2) $ getSectorNeighbors board (i, j)
@@ -68,26 +114,35 @@ isSolved board@(Board rank arr) =
       noSecDups = all (\(i, j) -> hasDuplicates $ getSector board (i, j)) [(i, j) | i <- [1 .. rank], j <- [1 .. rank]]
    in (length (getEmptySquares board) == 0) && noRowDups && noColDups && noSecDups
 
-solveSudokuImpl :: [(Int, Int)] -> Board -> Maybe Board
-solveSudokuImpl empties board@(Board rank arr) = case empties of
-        [] | isSolved board -> Just board
-        [] -> Nothing
-        (i, j) : xs ->
-          let
-            potentials = getPotentialValues (i,j) board
-            nextStates = [Board rank $ arr // [((i, j), Fixed p)] | p <- Set.toList potentials]
-            solutions = map (solveSudokuImpl xs) nextStates
-            sol = find isJust solutions
-          in
-            if isJust sol then fromJust sol else Nothing
+solveSudokuImpl :: [(Int, Int)] -> NeighborMap -> Board -> Maybe Board
+solveSudokuImpl empties neighborMap board@(Board rank arr) = case empties of
+  [] | isSolved board -> Just board
+  [] -> Nothing
+  ix@(i, j) : xs ->
+    let square = arr ! ix
+        potentials = getPossibilities square
+        nextStates = [updateAndPrune board ix p neighborMap | p <- potentials] 
+        solutions = map (solveSudokuImpl xs neighborMap) nextStates
+        sol = find isJust solutions
+     in if isJust sol then fromJust sol else Nothing
 
 solveSudoku :: Board -> Maybe Board
-solveSudoku board = solveSudokuImpl (getEmptySquares board) board
-
+solveSudoku board@(Board rank _) =
+  let
+    empties = getEmptySquares board
+    neighborMap = makeNeighborMap rank
+  in
+    solveSudokuImpl (getEmptySquares board) neighborMap (pruneBoard board empties)
 
 getEmptySquares :: Board -> [(Int, Int)]
 getEmptySquares (Board rank arr) =
   [(i, j) | i <- [1 .. rank ^ 2], j <- [1 .. rank ^ 2], isEmpty (arr ! (i, j))]
+
+pruneBoard :: Board -> [(Int, Int)] -> Board
+pruneBoard board@(Board rank arr) empties =
+  let possibles = map (Possible . (getPotentialValues board)) empties
+      arr' = arr // (empties `zip` possibles)
+   in Board rank arr'
 
 printBoard :: Board -> IO ()
 printBoard board@(Board rank arr) = forM_ [1 .. rank ^ 2] $ \i -> do
@@ -118,7 +173,7 @@ readRow rank soFar i = do
       nums = words filtered
       maybes = map readMaybe nums
       maybe2square = \x -> case x of
-        Nothing -> Possible $ Set.fromList [1..rank^2]
+        Nothing -> Possible $ Set.fromList [1 .. rank ^ 2]
         Just n -> Fixed n
       squares = map maybe2square maybes
       indices = [(i, j) | j <- [1 .. rank ^ 2]]

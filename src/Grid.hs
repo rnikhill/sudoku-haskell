@@ -119,7 +119,9 @@ solveSudokuImpl empties neighborMap board@(Board rank arr) = case empties of
     let square = arr ! ix
         potentials = getPossibilities square
         nextStates = [updateAndPrune board ix p neighborMap | p <- potentials]
-        solutions = map (solveSudokuImpl xs neighborMap) nextStates
+        posLens = xs `zip` map (length . getPossibilities . (arr !)) xs
+        sorted = map fst $ sortOn (snd) posLens
+        solutions = map (solveSudokuImpl sorted neighborMap) nextStates
         sol = find isJust solutions
      in fromMaybe Nothing sol
 

@@ -4,9 +4,9 @@ import Control.Monad
 import Data.Array
 import Data.Function
 import Data.List
+import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.Set as Set
-import qualified Data.Map as Map
 import Text.Read
 
 data Square = Fixed Int | Possible (Set.Set Int)
@@ -17,11 +17,9 @@ data Board = Board Int (Array (Int, Int) Square)
 
 makeNeighborMap :: Int -> NeighborMap
 makeNeighborMap rank =
-  let
-    ixs = [(i, j) | i <- [1..rank^2], j <- [1..rank^2]]
-    vals = map (getAllNeighborIndices rank) ixs
-  in
-    Map.fromList $ ixs `zip` vals
+  let ixs = [(i, j) | i <- [1 .. rank ^ 2], j <- [1 .. rank ^ 2]]
+      vals = map (getAllNeighborIndices rank) ixs
+   in Map.fromList $ ixs `zip` vals
 
 isEmpty :: Square -> Bool
 isEmpty (Possible _) = True
@@ -82,23 +80,20 @@ getAllNeighborIndices rank ix = Set.toList $ (getRowNeighborIndices rank ix) `Se
 
 updateAndPrune :: Board -> (Int, Int) -> Int -> NeighborMap -> Board
 updateAndPrune board@(Board rank arr) ix@(i, j) val neighborMap =
-  let
-    allNeighborIndices = Map.findWithDefault [] ix neighborMap
-    allNeighborVals = map (arr !) allNeighborIndices
-    neighbors = allNeighborIndices `zip` allNeighborVals
-    updates = (ix, Fixed val) : [(ix', Possible (Set.delete val s)) | (ix', Possible s) <- neighbors, ix /= ix']
-    arr' = arr // updates
-  in
-    Board rank arr'
-    
+  let allNeighborIndices = Map.findWithDefault [] ix neighborMap
+      allNeighborVals = map (arr !) allNeighborIndices
+      neighbors = allNeighborIndices `zip` allNeighborVals
+      updates = (ix, Fixed val) : [(ix', Possible (Set.delete val s)) | (ix', Possible s) <- neighbors, ix /= ix']
+      arr' = arr // updates
+   in Board rank arr'
 
 getMissingNums :: Int -> [Square] -> Set.Set Int
 getMissingNums max squares =
   let nums = [x | Fixed x <- squares] & Set.fromList
    in [1 .. max] & filter (\x -> Set.notMember x nums) & Set.fromList
 
-hasDuplicates :: [Square] -> Bool
-hasDuplicates xs = (Set.size $ getNumbers xs) == length xs
+hasNoDuplicates :: [Square] -> Bool
+hasNoDuplicates xs = (Set.size $ getNumbers xs) == length xs
 
 getPotentialValues :: Board -> (Int, Int) -> Set.Set Int
 getPotentialValues board@(Board rank arr) (i, j) =
@@ -109,9 +104,9 @@ getPotentialValues board@(Board rank arr) (i, j) =
 
 isSolved :: Board -> Bool
 isSolved board@(Board rank arr) =
-  let noRowDups = all (\i -> hasDuplicates $ getRow board i) [1 .. rank ^ 2]
-      noColDups = all (\j -> hasDuplicates $ getCol board j) [1 .. rank ^ 2]
-      noSecDups = all (\(i, j) -> hasDuplicates $ getSector board (i, j)) [(i, j) | i <- [1 .. rank], j <- [1 .. rank]]
+  let noRowDups = all (\i -> hasNoDuplicates $ getRow board i) [1 .. rank ^ 2]
+      noColDups = all (\j -> hasNoDuplicates $ getCol board j) [1 .. rank ^ 2]
+      noSecDups = all (\(i, j) -> hasNoDuplicates $ getSector board (i, j)) [(i, j) | i <- [1 .. rank], j <- [1 .. rank]]
    in (length (getEmptySquares board) == 0) && noRowDups && noColDups && noSecDups
 
 solveSudokuImpl :: [(Int, Int)] -> NeighborMap -> Board -> Maybe Board
@@ -121,18 +116,16 @@ solveSudokuImpl empties neighborMap board@(Board rank arr) = case empties of
   ix@(i, j) : xs ->
     let square = arr ! ix
         potentials = getPossibilities square
-        nextStates = [updateAndPrune board ix p neighborMap | p <- potentials] 
+        nextStates = [updateAndPrune board ix p neighborMap | p <- potentials]
         solutions = map (solveSudokuImpl xs neighborMap) nextStates
         sol = find isJust solutions
      in if isJust sol then fromJust sol else Nothing
 
 solveSudoku :: Board -> Maybe Board
 solveSudoku board@(Board rank _) =
-  let
-    empties = getEmptySquares board
-    neighborMap = makeNeighborMap rank
-  in
-    solveSudokuImpl (getEmptySquares board) neighborMap (pruneBoard board empties)
+  let empties = getEmptySquares board
+      neighborMap = makeNeighborMap rank
+   in solveSudokuImpl (getEmptySquares board) neighborMap (pruneBoard board empties)
 
 getEmptySquares :: Board -> [(Int, Int)]
 getEmptySquares (Board rank arr) =

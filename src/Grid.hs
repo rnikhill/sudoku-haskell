@@ -135,7 +135,7 @@ getEmptySquares (Board rank arr) =
 
 pruneBoard :: Board -> [(Int, Int)] -> Board
 pruneBoard board@(Board rank arr) empties =
-  let possibles = map (Possible . (getPotentialValues board)) empties
+  let possibles = map (Possible . getPotentialValues board) empties
       arr' = arr // (empties `zip` possibles)
    in Board rank arr'
 

@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase #-}
+
 module Grid where
 
 import Control.Monad
@@ -90,10 +92,10 @@ updateAndPrune board@(Board rank arr) ix@(i, j) val neighborMap =
 getMissingNums :: Int -> [Square] -> Set.Set Int
 getMissingNums max squares =
   let nums = [x | Fixed x <- squares] & Set.fromList
-   in [1 .. max] & filter (\x -> Set.notMember x nums) & Set.fromList
+   in [1 .. max] & filter (`Set.notMember` nums) & Set.fromList
 
 hasNoDuplicates :: [Square] -> Bool
-hasNoDuplicates xs = (Set.size $ getNumbers xs) == length xs
+hasNoDuplicates xs = Set.size (getNumbers xs) == length xs
 
 getPotentialValues :: Board -> (Int, Int) -> Set.Set Int
 getPotentialValues board@(Board rank arr) (i, j) =
@@ -104,10 +106,10 @@ getPotentialValues board@(Board rank arr) (i, j) =
 
 isSolved :: Board -> Bool
 isSolved board@(Board rank arr) =
-  let noRowDups = all (\i -> hasNoDuplicates $ getRow board i) [1 .. rank ^ 2]
-      noColDups = all (\j -> hasNoDuplicates $ getCol board j) [1 .. rank ^ 2]
-      noSecDups = all (\(i, j) -> hasNoDuplicates $ getSector board (i, j)) [(i, j) | i <- [1 .. rank], j <- [1 .. rank]]
-   in (length (getEmptySquares board) == 0) && noRowDups && noColDups && noSecDups
+  let noRowDups = all (hasNoDuplicates . getRow board) [1 .. rank ^ 2]
+      noColDups = all (hasNoDuplicates . getCol board) [1 .. rank ^ 2]
+      noSecDups = all (hasNoDuplicates . getSector board) [(i, j) | i <- [1 .. rank], j <- [1 .. rank]]
+   in null (getEmptySquares board) && noRowDups && noColDups && noSecDups
 
 solveSudokuImpl :: [(Int, Int)] -> NeighborMap -> Board -> Maybe Board
 solveSudokuImpl empties neighborMap board@(Board rank arr) = case empties of
@@ -119,7 +121,7 @@ solveSudokuImpl empties neighborMap board@(Board rank arr) = case empties of
         nextStates = [updateAndPrune board ix p neighborMap | p <- potentials]
         solutions = map (solveSudokuImpl xs neighborMap) nextStates
         sol = find isJust solutions
-     in if isJust sol then fromJust sol else Nothing
+     in fromMaybe Nothing sol
 
 solveSudoku :: Board -> Maybe Board
 solveSudoku board@(Board rank _) =
@@ -143,29 +145,26 @@ printBoard board@(Board rank arr) = forM_ [1 .. rank ^ 2] $ \i -> do
     let square = arr ! (i, j)
     putStr $ toString square
     putStr " "
-    if j `mod` rank == 0 && j /= rank ^ 2 then putStr "|" else return ()
+    when (j `mod` rank == 0 && j /= rank ^ 2) $ putStr "|"
   putStr "\n"
-  if i `mod` rank == 0 && i /= rank ^ 2
-    then do
-      forM_ [1 .. rank ^ 2] $ \j -> do
-        putStr "--"
-        if j `mod` rank == 0 && j /= rank ^ 2 then putStr "+" else return ()
-      putStr "\n"
-    else return ()
+  when (i `mod` rank == 0 && i /= rank ^ 2) $ do
+    forM_ [1 .. rank ^ 2] $ \j -> do
+      putStr "--"
+      when (j `mod` rank == 0 && j /= rank ^ 2) $ putStr "+"
+    putStr "\n"
 
-getRank :: IO (Int)
+getRank :: IO Int
 getRank = do
   putStrLn "Please enter rank of board"
-  line <- getLine
-  return $ read line
+  read <$> getLine
 
-readRow :: Int -> [((Int, Int), Square)] -> Int -> IO ([((Int, Int), Square)])
+readRow :: Int -> [((Int, Int), Square)] -> Int -> IO [((Int, Int), Square)]
 readRow rank soFar i = do
   line <- getLine
   let filtered = filter (/= '|') line
       nums = words filtered
       maybes = map readMaybe nums
-      maybe2square = \x -> case x of
+      maybe2square = \case
         Nothing -> Possible $ Set.fromList [1 .. rank ^ 2]
         Just n -> Fixed n
       squares = map maybe2square maybes
@@ -173,7 +172,7 @@ readRow rank soFar i = do
   if i `mod` rank == 0 && i /= rank ^ 2 then getLine else return ""
   return $ soFar ++ (indices `zip` squares)
 
-readBoard :: IO (Board)
+readBoard :: IO Board
 readBoard = do
   rank <- getRank
   indices <- foldM (readRow rank) [] [1 .. rank ^ 2]
